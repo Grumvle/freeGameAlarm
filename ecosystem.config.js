@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'free-game-alarm',
       script: 'dist/bot.js',
+      cwd: 'D:/freeGameAlarm',
       instances: 1,
       autorestart: true,
       watch: true,
