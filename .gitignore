@@ -1,0 +1,9 @@
+node_modules/
+dist/
+data/
+.env
+*.js.map
+.claude/
+.vscode/
+.idea/
+.DS_Store
