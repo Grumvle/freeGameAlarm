@@ -108,13 +108,14 @@ async function runStartupAnnouncement(): Promise<void> {
   if (channels.length === 0) return;
 
   const games = await getAllFreeGames();
+  const newGames = games.filter(game => !isNotified(game.id));
 
-  for (const game of games) {
-    if (!isNotified(game.id)) markNotified(game.id, game.title, game.store, game.endDateRaw);
+  for (const game of newGames) {
+    markNotified(game.id, game.title, game.store, game.endDateRaw);
   }
 
-  if (games.length === 0) {
-    console.log('[시작] 현재 무료 게임 없음');
+  if (newGames.length === 0) {
+    console.log('[시작] 새로운 무료 게임 없음 — 알림 건너뜀');
     return;
   }
 
@@ -122,17 +123,13 @@ async function runStartupAnnouncement(): Promise<void> {
     try {
       const ch = await client.channels.fetch(channelId);
       if (ch instanceof TextChannel) {
-        await ch.send(`🤖 **현재 무료 게임 ${games.length}개:**`);
-        for (const game of games) {
-          await ch.send({ embeds: [buildEmbed(game)] });
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
+        await postGamesToChannel(ch, newGames);
       }
     } catch (err) {
       console.error(`[시작] 채널 ${channelId} 전송 실패:`, err);
     }
   }
-  console.log(`[시작] 현재 무료 게임 ${games.length}개 전송 완료`);
+  console.log(`[시작] 새 무료 게임 ${newGames.length}개 전송 완료`);
 }
 
 async function runCheck(): Promise<number> {
