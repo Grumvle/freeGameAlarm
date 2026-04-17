@@ -10,4 +10,5 @@ export interface GameInfo {
   imageUrl?: string;
   originalPrice?: string;
   endDate?: string;
+  endDateRaw?: string; // ISO 8601 문자열 — DB 만료 정리용
 }

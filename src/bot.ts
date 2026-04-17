@@ -19,6 +19,7 @@ import {
 import { getAllFreeGames } from './scrapers';
 import {
   cleanupOldEntries,
+  cleanupExpiredGames,
   getSubscriptions, addSubscription, removeSubscription, clearSubscriptions,
   registerChannel, unregisterChannel, getAllChannels, getGuildChannels,
 } from './db';
@@ -132,6 +133,8 @@ function startScheduler(): void {
     try {
       const count = await runCheck();
       console.log(`[스케줄러] 완료 — 새 게임 ${count}개`);
+      const expired = cleanupExpiredGames();
+      if (expired > 0) console.log(`[DB] 만료된 게임 ${expired}개 제거`);
       cleanupOldEntries(30);
     } catch (err) {
       console.error('[스케줄러] 오류:', err);

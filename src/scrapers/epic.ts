@@ -87,6 +87,7 @@ export async function getEpicFreeGames(): Promise<GameInfo[]> {
       imageUrl: thumbnail,
       originalPrice: el.price.totalPrice.fmtPrice.originalPrice,
       endDate: formatDate(activeOffer.endDate),
+      endDateRaw: activeOffer.endDate,
     });
   }
 

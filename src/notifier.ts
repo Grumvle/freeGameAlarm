@@ -39,7 +39,7 @@ export async function getAndMarkNewGames(): Promise<GameInfo[]> {
   const newGames = games.filter(g => !isNotified(g.id));
 
   for (const game of newGames) {
-    markNotified(game.id, game.title, game.store);
+    markNotified(game.id, game.title, game.store, game.endDateRaw);
   }
 
   return newGames;

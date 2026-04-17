@@ -16,7 +16,8 @@ function getDb(): Database.Database {
         id          TEXT PRIMARY KEY,
         title       TEXT NOT NULL,
         store       TEXT NOT NULL,
-        notified_at INTEGER NOT NULL DEFAULT (unixepoch())
+        notified_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        end_date_ts INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS user_subscriptions (
@@ -31,6 +32,13 @@ function getDb(): Database.Database {
         PRIMARY KEY (guild_id, channel_id)
       );
     `);
+
+    // 기존 DB 마이그레이션: end_date_ts 컬럼이 없으면 추가
+    try {
+      _db.exec('ALTER TABLE notified_games ADD COLUMN end_date_ts INTEGER');
+    } catch {
+      // 이미 존재하면 무시
+    }
   }
   return _db;
 }
@@ -43,10 +51,19 @@ export function isNotified(id: string): boolean {
     .get(id) !== undefined;
 }
 
-export function markNotified(id: string, title: string, store: string): void {
+export function markNotified(id: string, title: string, store: string, endDateRaw?: string): void {
+  const endDateTs = endDateRaw ? Math.floor(new Date(endDateRaw).getTime() / 1000) : null;
   getDb()
-    .prepare('INSERT OR IGNORE INTO notified_games (id, title, store) VALUES (?, ?, ?)')
-    .run(id, title, store);
+    .prepare('INSERT OR IGNORE INTO notified_games (id, title, store, end_date_ts) VALUES (?, ?, ?, ?)')
+    .run(id, title, store, endDateTs);
+}
+
+export function cleanupExpiredGames(): number {
+  const now = Math.floor(Date.now() / 1000);
+  const result = getDb()
+    .prepare('DELETE FROM notified_games WHERE end_date_ts IS NOT NULL AND end_date_ts < ?')
+    .run(now);
+  return result.changes;
 }
 
 export function cleanupOldEntries(daysOld = 30): void {
