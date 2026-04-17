@@ -20,6 +20,7 @@ import { getAllFreeGames } from './scrapers';
 import {
   cleanupOldEntries,
   cleanupExpiredGames,
+  isNotified, markNotified,
   getSubscriptions, addSubscription, removeSubscription, clearSubscriptions,
   registerChannel, unregisterChannel, getAllChannels, getGuildChannels,
 } from './db';
@@ -102,6 +103,38 @@ async function registerCommands(clientId: string): Promise<void> {
 
 // ── 스케줄러 (등록된 모든 채널에 전송) ────────────────────
 
+async function runStartupAnnouncement(): Promise<void> {
+  const channels = getAllChannels();
+  if (channels.length === 0) return;
+
+  const games = await getAllFreeGames();
+
+  for (const game of games) {
+    if (!isNotified(game.id)) markNotified(game.id, game.title, game.store, game.endDateRaw);
+  }
+
+  if (games.length === 0) {
+    console.log('[시작] 현재 무료 게임 없음');
+    return;
+  }
+
+  for (const { channelId } of channels) {
+    try {
+      const ch = await client.channels.fetch(channelId);
+      if (ch instanceof TextChannel) {
+        await ch.send(`🤖 **현재 무료 게임 ${games.length}개:**`);
+        for (const game of games) {
+          await ch.send({ embeds: [buildEmbed(game)] });
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    } catch (err) {
+      console.error(`[시작] 채널 ${channelId} 전송 실패:`, err);
+    }
+  }
+  console.log(`[시작] 현재 무료 게임 ${games.length}개 전송 완료`);
+}
+
 async function runCheck(): Promise<number> {
   const channels = getAllChannels();
   if (channels.length === 0) {
@@ -153,12 +186,7 @@ client.once('clientReady', async (readyClient) => {
   );
   startScheduler();
 
-  console.log('[시작] 초기 무료 게임 확인...');
-  const count = await runCheck().catch(err => {
-    console.error('[시작] 오류:', err);
-    return 0;
-  });
-  console.log(`[시작] 완료 — 새 게임 ${count}개`);
+  await runStartupAnnouncement().catch(err => console.error('[시작] 오류:', err));
 });
 
 // ── 인터랙션 핸들러 ───────────────────────────────────────
