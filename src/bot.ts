@@ -225,11 +225,23 @@ client.on('interactionCreate', async interaction => {
       await interaction.reply({ content: '❌ 서버의 텍스트 채널에서만 사용 가능합니다.', flags: MessageFlags.Ephemeral });
       return;
     }
+    const isFirst = getGuildChannels(guildId).length === 0;
     registerChannel(guildId, interaction.channelId);
     await interaction.reply({
       content: `✅ <#${interaction.channelId}> 채널이 무료 게임 알림 채널로 등록되었습니다.`,
       flags: MessageFlags.Ephemeral,
     });
+
+    if (isFirst) {
+      try {
+        const games = await getAllFreeGames();
+        if (games.length > 0) {
+          await postGamesToChannel(interaction.channel as TextChannel, games);
+        }
+      } catch (err) {
+        console.error('[setchannel] 현재 무료 게임 전송 실패:', err);
+      }
+    }
   }
 
   // ── /unsetchannel ────────────────────────────────────────
