@@ -237,9 +237,12 @@ client.on('interactionCreate', async interaction => {
         const games = await getAllFreeGames();
         if (games.length > 0) {
           await postGamesToChannel(interaction.channel as TextChannel, games);
+        } else {
+          await interaction.followUp({ content: '현재 무료 게임이 없습니다.', flags: MessageFlags.Ephemeral });
         }
       } catch (err) {
         console.error('[setchannel] 현재 무료 게임 전송 실패:', err);
+        await interaction.followUp({ content: `❌ 무료 게임 목록 전송 실패: ${(err as Error).message}`, flags: MessageFlags.Ephemeral }).catch(() => {});
       }
     }
   }
