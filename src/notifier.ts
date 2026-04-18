@@ -1,6 +1,6 @@
 import { Client, TextChannel, EmbedBuilder } from 'discord.js';
 import { GameInfo } from './types';
-import { isNotified, markNotified, getSubscribersForStore } from './db';
+import { isNotified, markNotified, getAllChannels, getAllStoreRoles } from './db';
 import { getAllFreeGames } from './scrapers';
 
 const STORE_COLORS: Record<string, number> = {
@@ -14,6 +14,7 @@ const STORE_EMOJIS: Record<string, string> = {
   'Steam':      '🎯',
   'GOG':        '🎁',
 };
+
 
 export function buildEmbed(game: GameInfo): EmbedBuilder {
   const embed = new EmbedBuilder()
@@ -33,7 +34,6 @@ export function buildEmbed(game: GameInfo): EmbedBuilder {
   return embed;
 }
 
-// 새 게임 조회 + DB 마킹 (채널 전송과 분리)
 export async function getAndMarkNewGames(): Promise<GameInfo[]> {
   const games = await getAllFreeGames();
   const newGames = games.filter(g => !isNotified(g.id));
@@ -45,7 +45,6 @@ export async function getAndMarkNewGames(): Promise<GameInfo[]> {
   return newGames;
 }
 
-// 특정 채널에 게임 목록 전송
 export async function postGamesToChannel(
   channel: TextChannel,
   games: GameInfo[]
@@ -60,20 +59,30 @@ export async function postGamesToChannel(
   }
 }
 
-// 구독한 유저에게 DM 발송
-export async function dmSubscribers(client: Client, games: GameInfo[]): Promise<void> {
-  for (const game of games) {
-    const userIds = getSubscribersForStore(game.store);
+// 역할 멘션으로 구독자 알림
+export async function mentionSubscribers(client: Client, games: GameInfo[]): Promise<void> {
+  const allChannels = getAllChannels();
 
-    for (const userId of userIds) {
-      try {
-        const user = await client.users.fetch(userId);
-        await user.send({
-          content: `🎁 **${game.store}** 무료 게임 알림!`,
-          embeds: [buildEmbed(game)],
-        });
-      } catch {
-        // DM 비허용 유저 스킵
+  for (const game of games) {
+    const storeRoles = getAllStoreRoles(game.store);
+
+    for (const { guildId, roleId } of storeRoles) {
+      const channelIds = allChannels
+        .filter(c => c.guildId === guildId)
+        .map(c => c.channelId);
+
+      for (const channelId of channelIds) {
+        try {
+          const ch = await client.channels.fetch(channelId);
+          if (ch instanceof TextChannel) {
+            await ch.send({
+              content: `<@&${roleId}> **${game.store}** 무료 게임이 나왔어요!`,
+              embeds: [buildEmbed(game)],
+            });
+          }
+        } catch {
+          // 채널 전송 실패 스킵
+        }
       }
     }
   }

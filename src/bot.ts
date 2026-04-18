@@ -8,12 +8,13 @@ import {
   EmbedBuilder,
   PermissionFlagsBits,
   MessageFlags,
+  GuildMember,
 } from 'discord.js';
 import dotenv from 'dotenv';
 import {
   getAndMarkNewGames,
   postGamesToChannel,
-  dmSubscribers,
+  mentionSubscribers,
   buildEmbed,
 } from './notifier';
 import { getAllFreeGames } from './scrapers';
@@ -21,7 +22,7 @@ import {
   cleanupOldEntries,
   cleanupExpiredGames,
   isNotified, markNotified,
-  getSubscriptions, addSubscription, removeSubscription, clearSubscriptions,
+  setStoreRole, getStoreRole,
   registerChannel, unregisterChannel, getAllChannels, getGuildChannels,
 } from './db';
 import { ALL_STORES, Store } from './types';
@@ -65,7 +66,7 @@ const COMMANDS = [
 
   new SlashCommandBuilder()
     .setName('subscribe')
-    .setDescription('특정 유통사의 무료 게임 알림을 DM으로 구독합니다')
+    .setDescription('특정 유통사의 무료 게임 알림 역할을 구독합니다')
     .addStringOption(opt =>
       opt.setName('store')
         .setDescription('구독할 유통사')
@@ -75,7 +76,7 @@ const COMMANDS = [
 
   new SlashCommandBuilder()
     .setName('unsubscribe')
-    .setDescription('무료 게임 DM 알림 구독을 해제합니다')
+    .setDescription('무료 게임 알림 역할 구독을 해제합니다')
     .addStringOption(opt =>
       opt.setName('store')
         .setDescription('구독 해제할 유통사')
@@ -101,7 +102,32 @@ async function registerCommands(clientId: string): Promise<void> {
   }
 }
 
-// ── 스케줄러 (등록된 모든 채널에 전송) ────────────────────
+// ── 유통사별 역할 가져오거나 생성 ─────────────────────────
+
+const STORE_ROLE_COLORS: Record<string, number> = {
+  'Epic Games': 0x2b2b2b,
+  'Steam':      0x1b2838,
+  'GOG':        0x86328a,
+};
+
+async function getOrCreateStoreRole(guild: NonNullable<GuildMember['guild']>, store: Store): Promise<string> {
+  const existing = getStoreRole(guild.id, store);
+  if (existing) {
+    // 역할이 아직 서버에 존재하는지 확인
+    const role = guild.roles.cache.get(existing) ?? await guild.roles.fetch(existing).catch(() => null);
+    if (role) return role.id;
+  }
+
+  const role = await guild.roles.create({
+    name: `${store} 알림`,
+    color: STORE_ROLE_COLORS[store] ?? 0x5865f2,
+    reason: '무료 게임 알림 구독 역할',
+  });
+  setStoreRole(guild.id, store, role.id);
+  return role.id;
+}
+
+// ── 스케줄러 ──────────────────────────────────────────────
 
 async function runStartupAnnouncement(): Promise<void> {
   const channels = getAllChannels();
@@ -153,7 +179,7 @@ async function runCheck(): Promise<number> {
     }
   }
 
-  await dmSubscribers(client, newGames);
+  await mentionSubscribers(client, newGames);
   return newGames.length;
 }
 
@@ -191,7 +217,7 @@ client.once('clientReady', async (readyClient) => {
 client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
 
-  const { commandName, user, guildId } = interaction;
+  const { commandName, guildId } = interaction;
 
   // ── /setchannel ─────────────────────────────────────────
   if (commandName === 'setchannel') {
@@ -257,53 +283,81 @@ client.on('interactionCreate', async interaction => {
 
   // ── /subscribe ───────────────────────────────────────────
   if (commandName === 'subscribe') {
+    if (!guildId || !interaction.guild || !(interaction.member instanceof GuildMember)) {
+      await interaction.reply({ content: '❌ 서버의 텍스트 채널에서만 사용 가능합니다.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
     const value = interaction.options.getString('store', true);
     const stores: Store[] = value === 'all' ? [...ALL_STORES] : [value as Store];
 
-    for (const store of stores) addSubscription(user.id, store);
+    const assigned: string[] = [];
+    for (const store of stores) {
+      try {
+        const roleId = await getOrCreateStoreRole(interaction.guild, store);
+        await interaction.member.roles.add(roleId);
+        assigned.push(store);
+      } catch (err) {
+        console.error(`[/subscribe] 역할 부여 실패 (${store}):`, err);
+      }
+    }
 
-    const label = value === 'all' ? '전체 유통사' : value;
-    await interaction.reply({
-      content: `✅ **${label}** 구독 완료!\n새 무료 게임이 나오면 DM으로 알려드립니다.\n(Discord 개인 메시지 허용이 필요합니다)`,
-      flags: MessageFlags.Ephemeral,
-    });
+    await interaction.editReply(
+      assigned.length > 0
+        ? `✅ 구독 완료!\n${assigned.join('\n')}\n새 무료 게임이 나오면 이 채널에서 역할 멘션으로 알려드립니다.`
+        : '❌ 역할 부여에 실패했습니다. 봇의 역할 관리 권한을 확인해주세요.'
+    );
   }
 
   // ── /unsubscribe ─────────────────────────────────────────
   if (commandName === 'unsubscribe') {
-    const value = interaction.options.getString('store', true);
-    if (value === 'all') {
-      clearSubscriptions(user.id);
-      await interaction.reply({ content: '✅ 모든 구독을 해제했습니다.', flags: MessageFlags.Ephemeral });
-    } else {
-      removeSubscription(user.id, value);
-      await interaction.reply({ content: `✅ **${value}** 구독을 해제했습니다.`, flags: MessageFlags.Ephemeral });
+    if (!guildId || !interaction.guild || !(interaction.member instanceof GuildMember)) {
+      await interaction.reply({ content: '❌ 서버에서만 사용 가능합니다.', flags: MessageFlags.Ephemeral });
+      return;
     }
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const value = interaction.options.getString('store', true);
+    const stores: Store[] = value === 'all' ? [...ALL_STORES] : [value as Store];
+
+    for (const store of stores) {
+      const roleId = getStoreRole(guildId, store);
+      if (roleId) {
+        await interaction.member.roles.remove(roleId).catch(() => {});
+      }
+    }
+
+    const label = value === 'all' ? '모든 유통사' : value;
+    await interaction.editReply(`✅ **${label}** 구독을 해제했습니다.`);
   }
 
   // ── /subscriptions ───────────────────────────────────────
   if (commandName === 'subscriptions') {
-    const subs = getSubscriptions(user.id);
+    if (!(interaction.member instanceof GuildMember)) {
+      await interaction.reply({ content: '❌ 서버에서만 사용 가능합니다.', flags: MessageFlags.Ephemeral });
+      return;
+    }
 
-    // 이 서버에 등록된 알림 채널도 같이 표시
     const channelIds = guildId ? getGuildChannels(guildId) : [];
     const channelMentions = channelIds.map(id => `<#${id}>`).join(', ') || '없음';
+
+    const subLines = ALL_STORES.map(s => {
+      const roleId = guildId ? getStoreRole(guildId, s) : undefined;
+      const hasRole = roleId ? interaction.member!.roles instanceof Object &&
+        (interaction.member as GuildMember).roles.cache.has(roleId) : false;
+      return hasRole
+        ? `✅ ${s} (<@&${roleId}>)`
+        : `❌ ${s}`;
+    });
 
     const embed = new EmbedBuilder()
       .setTitle('📋 무료 게임 알림 현황')
       .setColor(0x5865f2)
       .setTimestamp()
       .addFields(
-        {
-          name: '🔔 이 서버 알림 채널',
-          value: channelMentions,
-          inline: false,
-        },
-        {
-          name: '📬 내 DM 구독',
-          value: ALL_STORES.map(s => `${subs.includes(s) ? '✅' : '❌'} ${s}`).join('\n'),
-          inline: false,
-        }
+        { name: '🔔 이 서버 알림 채널', value: channelMentions, inline: false },
+        { name: '📣 내 구독 역할',       value: subLines.join('\n'),  inline: false },
       )
       .setFooter({ text: '구독 변경: /subscribe 또는 /unsubscribe' });
 

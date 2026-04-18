@@ -20,24 +20,24 @@ function getDb(): Database.Database {
         end_date_ts INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS user_subscriptions (
-        user_id TEXT NOT NULL,
-        store   TEXT NOT NULL,
-        PRIMARY KEY (user_id, store)
-      );
-
       CREATE TABLE IF NOT EXISTS registered_channels (
         guild_id   TEXT NOT NULL,
         channel_id TEXT NOT NULL,
         PRIMARY KEY (guild_id, channel_id)
       );
+
+      CREATE TABLE IF NOT EXISTS guild_store_roles (
+        guild_id TEXT NOT NULL,
+        store    TEXT NOT NULL,
+        role_id  TEXT NOT NULL,
+        PRIMARY KEY (guild_id, store)
+      );
     `);
 
-    // 기존 DB 마이그레이션: end_date_ts 컬럼이 없으면 추가
-    try {
-      _db.exec('ALTER TABLE notified_games ADD COLUMN end_date_ts INTEGER');
-    } catch {
-      // 이미 존재하면 무시
+    for (const sql of [
+      'ALTER TABLE notified_games ADD COLUMN end_date_ts INTEGER',
+    ]) {
+      try { _db.exec(sql); } catch { /* 이미 존재하면 무시 */ }
     }
   }
   return _db;
@@ -71,40 +71,27 @@ export function cleanupOldEntries(daysOld = 30): void {
   getDb().prepare('DELETE FROM notified_games WHERE notified_at < ?').run(cutoff);
 }
 
-// ── 유저 구독 ──────────────────────────────────────────────
+// ── 역할 관리 ──────────────────────────────────────────────
 
-export function getSubscriptions(userId: string): string[] {
+export function setStoreRole(guildId: string, store: string, roleId: string): void {
+  getDb()
+    .prepare('INSERT OR REPLACE INTO guild_store_roles (guild_id, store, role_id) VALUES (?, ?, ?)')
+    .run(guildId, store, roleId);
+}
+
+export function getStoreRole(guildId: string, store: string): string | undefined {
+  const row = getDb()
+    .prepare('SELECT role_id FROM guild_store_roles WHERE guild_id = ? AND store = ?')
+    .get(guildId, store) as { role_id: string } | undefined;
+  return row?.role_id;
+}
+
+export function getAllStoreRoles(store: string): { guildId: string; roleId: string }[] {
   return (
     getDb()
-      .prepare('SELECT store FROM user_subscriptions WHERE user_id = ?')
-      .all(userId) as { store: string }[]
-  ).map(r => r.store);
-}
-
-export function addSubscription(userId: string, store: string): void {
-  getDb()
-    .prepare('INSERT OR IGNORE INTO user_subscriptions (user_id, store) VALUES (?, ?)')
-    .run(userId, store);
-}
-
-export function removeSubscription(userId: string, store: string): void {
-  getDb()
-    .prepare('DELETE FROM user_subscriptions WHERE user_id = ? AND store = ?')
-    .run(userId, store);
-}
-
-export function clearSubscriptions(userId: string): void {
-  getDb()
-    .prepare('DELETE FROM user_subscriptions WHERE user_id = ?')
-    .run(userId);
-}
-
-export function getSubscribersForStore(store: string): string[] {
-  return (
-    getDb()
-      .prepare('SELECT user_id FROM user_subscriptions WHERE store = ?')
-      .all(store) as { user_id: string }[]
-  ).map(r => r.user_id);
+      .prepare('SELECT guild_id, role_id FROM guild_store_roles WHERE store = ?')
+      .all(store) as { guild_id: string; role_id: string }[]
+  ).map(r => ({ guildId: r.guild_id, roleId: r.role_id }));
 }
 
 // ── 채널 관리 ──────────────────────────────────────────────
