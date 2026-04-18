@@ -93,12 +93,13 @@ const COMMANDS = [
 
 async function registerCommands(clientId: string): Promise<void> {
   const rest = new REST().setToken(TOKEN!);
+  await rest.put(Routes.applicationCommands(clientId), { body: COMMANDS });
+  console.log('슬래시 커맨드 전역 등록 완료');
+
+  // 개발용: 서버 등록으로 즉시 반영
   if (GUILD_ID) {
     await rest.put(Routes.applicationGuildCommands(clientId, GUILD_ID), { body: COMMANDS });
-    console.log(`슬래시 커맨드 등록 완료 (서버 ID: ${GUILD_ID})`);
-  } else {
-    await rest.put(Routes.applicationCommands(clientId), { body: COMMANDS });
-    console.log('슬래시 커맨드 전역 등록 완료 (반영까지 최대 1시간 소요)');
+    console.log(`슬래시 커맨드 서버 등록 완료 (서버 ID: ${GUILD_ID})`);
   }
 }
 
