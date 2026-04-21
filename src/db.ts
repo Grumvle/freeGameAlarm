@@ -7,6 +7,30 @@ const DB_PATH = path.join(DATA_DIR, 'games.db');
 
 let _db: Database.Database | null = null;
 
+const MIGRATIONS: Array<{ version: number; up: (db: Database.Database) => void }> = [
+  {
+    version: 1,
+    up: (db) => {
+      const columns = db.pragma('table_info(notified_games)') as Array<{ name: string }>;
+      if (!columns.some(c => c.name === 'end_date_ts')) {
+        db.exec('ALTER TABLE notified_games ADD COLUMN end_date_ts INTEGER');
+      }
+    },
+  },
+];
+
+function runMigrations(db: Database.Database): void {
+  db.exec('CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)');
+  const row = db.prepare('SELECT MAX(version) as v FROM schema_version').get() as { v: number | null };
+  const current = row?.v ?? 0;
+  for (const m of MIGRATIONS) {
+    if (m.version > current) {
+      m.up(db);
+      db.prepare('INSERT INTO schema_version (version) VALUES (?)').run(m.version);
+    }
+  }
+}
+
 function getDb(): Database.Database {
   if (!_db) {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -33,12 +57,7 @@ function getDb(): Database.Database {
         PRIMARY KEY (guild_id, store)
       );
     `);
-
-    for (const sql of [
-      'ALTER TABLE notified_games ADD COLUMN end_date_ts INTEGER',
-    ]) {
-      try { _db.exec(sql); } catch { /* 이미 존재하면 무시 */ }
-    }
+    runMigrations(_db);
   }
   return _db;
 }
@@ -52,7 +71,8 @@ export function isNotified(id: string): boolean {
 }
 
 export function markNotified(id: string, title: string, store: string, endDateRaw?: string): void {
-  const endDateTs = endDateRaw ? Math.floor(new Date(endDateRaw).getTime() / 1000) : null;
+  const parsedEndDate = endDateRaw ? new Date(endDateRaw).getTime() : NaN;
+  const endDateTs = Number.isFinite(parsedEndDate) ? Math.floor(parsedEndDate / 1000) : null;
   getDb()
     .prepare('INSERT OR IGNORE INTO notified_games (id, title, store, end_date_ts) VALUES (?, ?, ?, ?)')
     .run(id, title, store, endDateTs);
@@ -84,14 +104,6 @@ export function getStoreRole(guildId: string, store: string): string | undefined
     .prepare('SELECT role_id FROM guild_store_roles WHERE guild_id = ? AND store = ?')
     .get(guildId, store) as { role_id: string } | undefined;
   return row?.role_id;
-}
-
-export function getAllStoreRoles(store: string): { guildId: string; roleId: string }[] {
-  return (
-    getDb()
-      .prepare('SELECT guild_id, role_id FROM guild_store_roles WHERE store = ?')
-      .all(store) as { guild_id: string; role_id: string }[]
-  ).map(r => ({ guildId: r.guild_id, roleId: r.role_id }));
 }
 
 // ── 채널 관리 ──────────────────────────────────────────────

@@ -55,7 +55,6 @@ export async function getGogFreeGames(): Promise<GameInfo[]> {
     const isPaidNowFree =
       price.isDiscounted &&
       price.discountPercentage === 100 &&
-      !price.isFree &&
       parseFloat(price.baseAmount) > 0;
 
     if (!isPaidNowFree) continue;

@@ -7,3 +7,6 @@ data/
 .vscode/
 .idea/
 .DS_Store
+CLAUDE.md
+.gemini/
+.codex/

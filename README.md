@@ -8,7 +8,7 @@ Steam, Epic Games, GOG의 무료 게임을 자동으로 탐지해 Discord 채널
 
 - **자동 알림** — 설정한 주기마다 무료 게임을 확인해 등록된 채널에 공지합니다.
 - **다중 서버 지원** — 여러 Discord 서버에 봇을 초대해 서버별로 독립 운영할 수 있습니다.
-- **DM 구독** — 원하는 유통사만 골라 개인 DM으로 알림을 받을 수 있습니다.
+- **역할 구독** — 원하는 유통사만 골라 역할 멘션으로 알림을 받을 수 있습니다.
 - **중복 방지** — SQLite DB로 이미 알린 게임은 다시 알리지 않습니다.
 
 ---
@@ -75,6 +75,7 @@ Developer Portal에서 봇에 다음 권한을 부여하세요.
 - `Send Messages`
 - `Embed Links`
 - `Read Message History`
+- `Manage Roles`
 
 Privileged Intents는 필요하지 않습니다.
 
@@ -95,7 +96,7 @@ Privileged Intents는 필요하지 않습니다.
 | 커맨드 | 설명 |
 |---|---|
 | `/list` | 현재 무료 게임 전체 목록 조회 (본인에게만 표시) |
-| `/subscribe [유통사]` | 특정 유통사의 무료 게임 DM 알림 구독 |
+| `/subscribe [유통사]` | 특정 유통사의 무료 게임 역할 멘션 구독 |
 | `/unsubscribe [유통사]` | 구독 해제 |
 | `/subscriptions` | 내 구독 현황 확인 |
 
@@ -109,15 +110,13 @@ Privileged Intents는 필요하지 않습니다.
 2. 알림을 받을 채널에서 `/setchannel`을 실행합니다.
 3. 이후 설정한 주기마다 새 무료 게임이 자동으로 공지됩니다.
 
-### DM 알림 구독
+### 역할 멘션 알림 구독
 
 ```
-/subscribe Epic Games   → Epic Games 게임만 DM 수신
-/subscribe Steam        → Steam 게임만 DM 수신
-/subscribe 전체         → 모든 유통사 DM 수신
+/subscribe Epic Games   → Epic Games 게임만 역할 멘션 수신
+/subscribe Steam        → Steam 게임만 역할 멘션 수신
+/subscribe 전체         → 모든 유통사 역할 멘션 수신
 ```
-
-> Discord 설정에서 **개인 메시지 허용**이 켜져 있어야 DM이 수신됩니다.
 
 ---
 
