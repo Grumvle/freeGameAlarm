@@ -1,14 +1,14 @@
 import { ChatInputCommandInteraction, Client, MessageFlags } from 'discord.js';
-import { broadcast } from '../scheduler';
+import { runManualCheck } from '../scheduler';
 
 export async function handleCheck(interaction: ChatInputCommandInteraction, client: Client): Promise<void> {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   try {
-    const { gameCount, sent, total } = await broadcast(client);
+    const { guilds, games, channels } = await runManualCheck(client);
     await interaction.editReply(
-      gameCount === 0
-        ? `✅ 새로운 무료 게임이 없습니다. (알림 채널 ${total}개)`
-        : `✅ **${gameCount}개**의 새 무료 게임을 ${sent}/${total}개 채널에 알렸습니다!`
+      games === 0
+        ? '✅ 새로 알릴 무료 게임이 없습니다. (모든 서버 최신 상태)'
+        : `✅ 새 무료 게임 **${games}건**을 ${guilds}개 서버 / ${channels}개 채널에 알렸습니다!`,
     );
   } catch (err) {
     console.error('[/check]', err);

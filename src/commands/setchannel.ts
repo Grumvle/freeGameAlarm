@@ -1,7 +1,7 @@
 import { ChatInputCommandInteraction, Client, MessageFlags, TextChannel } from 'discord.js';
 import { getGuildChannels, registerChannel } from '../db';
 import { getAllFreeGames } from '../scrapers';
-import { markGamesNotified, postGamesToChannel } from '../notifier';
+import { markGamesNotifiedForGuild, postGamesToChannel } from '../notifier';
 
 export async function handleSetChannel(interaction: ChatInputCommandInteraction, _client: Client): Promise<void> {
   const { guildId } = interaction;
@@ -24,7 +24,7 @@ export async function handleSetChannel(interaction: ChatInputCommandInteraction,
         await postGamesToChannel(interaction.channel as TextChannel, games, {
           heading: `🎮 **현재 무료 게임 ${games.length}개:**`,
         });
-        markGamesNotified(games);
+        markGamesNotifiedForGuild(guildId, games);
       } else {
         await interaction.followUp({ content: '현재 무료 게임이 없습니다.', flags: MessageFlags.Ephemeral });
       }

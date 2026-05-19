@@ -12,6 +12,7 @@ import { handleList } from './list';
 import { handleSubscribe } from './subscribe';
 import { handleUnsubscribe } from './unsubscribe';
 import { handleSubscriptions } from './subscriptions';
+import { handleNotifyTime } from './notifytime';
 
 export type CommandHandler = (interaction: ChatInputCommandInteraction, client: Client) => Promise<void>;
 
@@ -60,6 +61,18 @@ export const COMMANDS = [
   new SlashCommandBuilder()
     .setName('subscriptions')
     .setDescription('현재 나의 구독 현황을 확인합니다'),
+
+  new SlashCommandBuilder()
+    .setName('notifytime')
+    .setDescription('[관리자] 이 서버의 무료 게임 알림 시각(시, KST)을 설정합니다')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addIntegerOption(opt =>
+      opt.setName('hour')
+        .setDescription('알림 받을 시각 (0-23, 기본 12). 생략 시 현재 설정 표시')
+        .setRequired(false)
+        .setMinValue(0)
+        .setMaxValue(23)
+    ),
 ].map(cmd => cmd.toJSON());
 
 const handlers: Record<string, CommandHandler> = {
@@ -70,6 +83,7 @@ const handlers: Record<string, CommandHandler> = {
   subscribe:     handleSubscribe,
   unsubscribe:   handleUnsubscribe,
   subscriptions: handleSubscriptions,
+  notifytime:    handleNotifyTime,
 };
 
 export async function dispatch(interaction: ChatInputCommandInteraction, client: Client): Promise<void> {

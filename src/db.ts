@@ -56,39 +56,113 @@ function getDb(): Database.Database {
         role_id  TEXT NOT NULL,
         PRIMARY KEY (guild_id, store)
       );
+
+      CREATE TABLE IF NOT EXISTS guild_notify_settings (
+        guild_id           TEXT PRIMARY KEY,
+        notify_hour        INTEGER NOT NULL DEFAULT 12,
+        last_notified_date TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS guild_notified_games (
+        guild_id    TEXT NOT NULL,
+        game_id     TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        store       TEXT NOT NULL,
+        notified_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        end_date_ts INTEGER,
+        PRIMARY KEY (guild_id, game_id)
+      );
     `);
     runMigrations(_db);
   }
   return _db;
 }
 
-// ── 알림 추적 ──────────────────────────────────────────────
+// ── 서버별 알림 시각 설정 ──────────────────────────────────
 
-export function isNotified(id: string): boolean {
-  return getDb()
-    .prepare('SELECT 1 FROM notified_games WHERE id = ?')
-    .get(id) !== undefined;
+const DEFAULT_NOTIFY_HOUR = 12;
+
+export function getNotifyHour(guildId: string): number {
+  const row = getDb()
+    .prepare('SELECT notify_hour FROM guild_notify_settings WHERE guild_id = ?')
+    .get(guildId) as { notify_hour: number } | undefined;
+  return row?.notify_hour ?? DEFAULT_NOTIFY_HOUR;
 }
 
-export function markNotified(id: string, title: string, store: string, endDateRaw?: string): void {
+export function setNotifyHour(guildId: string, hour: number): void {
+  // last_notified_date is intentionally left untouched on update so that
+  // changing the hour does not cause a duplicate delivery on the same day.
+  getDb()
+    .prepare(`
+      INSERT INTO guild_notify_settings (guild_id, notify_hour)
+      VALUES (?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET notify_hour = excluded.notify_hour
+    `)
+    .run(guildId, hour);
+}
+
+export function getLastNotifiedDate(guildId: string): string | undefined {
+  const row = getDb()
+    .prepare('SELECT last_notified_date FROM guild_notify_settings WHERE guild_id = ?')
+    .get(guildId) as { last_notified_date: string | null } | undefined;
+  return row?.last_notified_date ?? undefined;
+}
+
+export function setLastNotifiedDate(guildId: string, date: string): void {
+  getDb()
+    .prepare(`
+      INSERT INTO guild_notify_settings (guild_id, notify_hour, last_notified_date)
+      VALUES (?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET last_notified_date = excluded.last_notified_date
+    `)
+    .run(guildId, DEFAULT_NOTIFY_HOUR, date);
+}
+
+// ── 서버별 알림 추적 ───────────────────────────────────────
+
+export function getGuildNotifiedIds(guildId: string): Set<string> {
+  const rows = getDb()
+    .prepare('SELECT game_id FROM guild_notified_games WHERE guild_id = ?')
+    .all(guildId) as { game_id: string }[];
+  return new Set(rows.map(r => r.game_id));
+}
+
+export function markGuildNotified(
+  guildId: string,
+  gameId: string,
+  title: string,
+  store: string,
+  endDateRaw?: string,
+): void {
   const parsedEndDate = endDateRaw ? new Date(endDateRaw).getTime() : NaN;
   const endDateTs = Number.isFinite(parsedEndDate) ? Math.floor(parsedEndDate / 1000) : null;
   getDb()
-    .prepare('INSERT OR IGNORE INTO notified_games (id, title, store, end_date_ts) VALUES (?, ?, ?, ?)')
-    .run(id, title, store, endDateTs);
+    .prepare(`
+      INSERT OR IGNORE INTO guild_notified_games (guild_id, game_id, title, store, end_date_ts)
+      VALUES (?, ?, ?, ?, ?)
+    `)
+    .run(guildId, gameId, title, store, endDateTs);
 }
 
-export function cleanupExpiredGames(): number {
+export function getGuildsWithChannels(): string[] {
+  return (
+    getDb()
+      .prepare('SELECT DISTINCT guild_id FROM registered_channels')
+      .all() as { guild_id: string }[]
+  ).map(r => r.guild_id);
+}
+
+export function cleanupGuildNotifiedGames(unknownEndDateDays = 60): number {
   const now = Math.floor(Date.now() / 1000);
-  const result = getDb()
-    .prepare('DELETE FROM notified_games WHERE end_date_ts IS NOT NULL AND end_date_ts < ?')
+  const cutoff = now - unknownEndDateDays * 86400;
+  const db = getDb();
+  const expired = db
+    .prepare('DELETE FROM guild_notified_games WHERE end_date_ts IS NOT NULL AND end_date_ts < ?')
     .run(now);
-  return result.changes;
-}
-
-export function cleanupOldEntries(daysOld = 30): void {
-  const cutoff = Math.floor(Date.now() / 1000) - daysOld * 86400;
-  getDb().prepare('DELETE FROM notified_games WHERE notified_at < ?').run(cutoff);
+  const stale = db
+    .prepare('DELETE FROM guild_notified_games WHERE end_date_ts IS NULL AND notified_at < ?')
+    .run(cutoff);
+  return expired.changes + stale.changes;
 }
 
 // ── 역할 관리 ──────────────────────────────────────────────
@@ -118,14 +192,6 @@ export function unregisterChannel(guildId: string, channelId: string): void {
   getDb()
     .prepare('DELETE FROM registered_channels WHERE guild_id = ? AND channel_id = ?')
     .run(guildId, channelId);
-}
-
-export function getAllChannels(): { guildId: string; channelId: string }[] {
-  return (
-    getDb()
-      .prepare('SELECT guild_id, channel_id FROM registered_channels')
-      .all() as { guild_id: string; channel_id: string }[]
-  ).map(r => ({ guildId: r.guild_id, channelId: r.channel_id }));
 }
 
 export function getGuildChannels(guildId: string): string[] {

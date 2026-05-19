@@ -1,8 +1,7 @@
 import { Client, GatewayIntentBits, REST, Routes } from 'discord.js';
 import dotenv from 'dotenv';
 import { COMMANDS, dispatch } from './commands';
-import { broadcast, startScheduler } from './scheduler';
-import { getAllChannels } from './db';
+import { startScheduler } from './scheduler';
 
 dotenv.config();
 
@@ -34,18 +33,6 @@ client.once('clientReady', async (readyClient) => {
     console.error('커맨드 등록 실패:', err)
   );
   startScheduler(client, INTERVAL_HOURS);
-
-  if (getAllChannels().length > 0) {
-    const { gameCount, sent, total } = await broadcast(client).catch(err => {
-      console.error('[시작] 오류:', err);
-      return { gameCount: 0, sent: 0, total: 0 };
-    });
-    if (gameCount > 0) {
-      console.log(`[시작] 새 무료 게임 ${gameCount}개 → ${sent}/${total}개 채널 전송 완료`);
-    } else {
-      console.log('[시작] 새로운 무료 게임 없음 — 알림 건너뜀');
-    }
-  }
 });
 
 client.on('interactionCreate', async interaction => {

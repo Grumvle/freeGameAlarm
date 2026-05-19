@@ -1,7 +1,6 @@
 import { TextChannel, EmbedBuilder } from 'discord.js';
 import { GameInfo } from './types';
-import { isNotified, markNotified, getStoreRole } from './db';
-import { getAllFreeGames } from './scrapers';
+import { getGuildNotifiedIds, markGuildNotified, getStoreRole } from './db';
 import { STORE_META, MESSAGE_DELAY_MS } from './constants';
 
 export function buildEmbed(game: GameInfo): EmbedBuilder {
@@ -23,14 +22,15 @@ export function buildEmbed(game: GameInfo): EmbedBuilder {
   return embed;
 }
 
-export async function getNewGames(): Promise<GameInfo[]> {
-  const games = await getAllFreeGames();
-  return games.filter(g => !isNotified(g.id));
+/** Games from `games` that this guild has not been notified about yet. */
+export function filterNewForGuild(guildId: string, games: GameInfo[]): GameInfo[] {
+  const notified = getGuildNotifiedIds(guildId);
+  return games.filter(g => !notified.has(g.id));
 }
 
-export function markGamesNotified(games: GameInfo[]): void {
+export function markGamesNotifiedForGuild(guildId: string, games: GameInfo[]): void {
   for (const game of games) {
-    markNotified(game.id, game.title, game.store, game.endDateRaw);
+    markGuildNotified(guildId, game.id, game.title, game.store, game.endDateRaw);
   }
 }
 
