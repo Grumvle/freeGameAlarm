@@ -69,10 +69,16 @@ export async function getEpicFreeGames(): Promise<GameInfo[]> {
       .find(o => o.discountSetting.discountPercentage === 0);
 
     if (!activeOffer) continue;
-    if (el.price.totalPrice.originalPrice === 0) continue; // F2P 제외
 
+    // Skip placeholder entries (e.g. unrevealed "Mystery Game" rows).
+    // These expose a literal "[]" productSlug and no usable slug.
     const slug = getSlug(el);
-    if (!slug) continue;
+    if (!slug || slug === '[]') continue;
+
+    // During MEGA SALE mystery promos Epic reports a real paid game with
+    // originalPrice 0, so we no longer filter on price; the active 0% offer
+    // above is what marks a genuine giveaway. Only show the price when known.
+    const hasPrice = el.price.totalPrice.originalPrice > 0;
 
     const thumbnail =
       el.keyImages.find(img =>
@@ -85,7 +91,9 @@ export async function getEpicFreeGames(): Promise<GameInfo[]> {
       store: 'Epic Games',
       url: `https://store.epicgames.com/ko/p/${slug}`,
       imageUrl: thumbnail,
-      originalPrice: el.price.totalPrice.fmtPrice.originalPrice,
+      originalPrice: hasPrice
+        ? el.price.totalPrice.fmtPrice.originalPrice
+        : undefined,
       endDate: formatDate(activeOffer.endDate),
       endDateRaw: activeOffer.endDate,
     });
