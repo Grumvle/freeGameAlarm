@@ -1,29 +1,74 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import * as cheerio from 'cheerio';
 import { GameInfo } from '../types';
 
 const SEARCH_URL = 'https://store.steampowered.com/search/';
+const MAX_ATTEMPTS = 3;
+const BASE_BACKOFF_MS = 1_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+
+const REQUEST_PARAMS = {
+  maxprice: 'free',
+  category1: '998,994',
+  supportedlang: 'english',
+  specials: 1,
+  ndl: 1,
+} as const;
+
+const REQUEST_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'ko-KR,ko;q=0.9',
+  'Cookie': 'birthtime=631152001; mature_content=1; cc3804=1; wants_mature_content=1',
+};
+
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Fetch the Steam search HTML, retrying on transient failures and bot walls.
+ *
+ * A valid results page — even one matching zero games — always renders the
+ * `search_results_count` element. Its absence means Steam served an age/region
+ * interstitial, rate-limit, or error page instead. From datacenter/VPS IPs this
+ * happens intermittently, so we retry rather than silently returning no games.
+ */
+async function fetchSearchHtml(): Promise<string> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const { data } = await axios.get<string>(SEARCH_URL, {
+        params: REQUEST_PARAMS,
+        headers: REQUEST_HEADERS,
+        timeout: REQUEST_TIMEOUT_MS,
+      });
+
+      if (typeof data !== 'string' || !data.includes('search_results_count')) {
+        throw new Error('검색 결과 페이지 대신 차단/인터스티셜 페이지를 받았습니다');
+      }
+
+      return data;
+    } catch (err) {
+      lastError = err;
+      const status = (err as AxiosError).response?.status;
+      const detail = status ? ` HTTP ${status}` : '';
+      console.warn(
+        `[Steam] 요청 실패 (시도 ${attempt}/${MAX_ATTEMPTS}${detail}): ${(err as Error).message}`,
+      );
+      if (attempt < MAX_ATTEMPTS) {
+        await delay(BASE_BACKOFF_MS * 2 ** (attempt - 1));
+      }
+    }
+  }
+
+  throw lastError;
+}
 
 export async function getSteamFreeGames(): Promise<GameInfo[]> {
-  const { data } = await axios.get<string>(SEARCH_URL, {
-    params: {
-      maxprice: 'free',
-      category1: '998,994',
-      supportedlang: 'english',
-      specials: 1,
-      ndl: 1,
-    },
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'ko-KR,ko;q=0.9',
-      'Cookie': 'birthtime=631152001; mature_content=1; cc3804=1; wants_mature_content=1',
-    },
-    timeout: 15_000,
-  });
+  const html = await fetchSearchHtml();
 
-  const $ = cheerio.load(data);
+  const $ = cheerio.load(html);
   const rows = $('a.search_result_row');
   console.log(`[Steam] 검색 결과 행 수: ${rows.length}`);
 
